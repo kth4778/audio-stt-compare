@@ -1,0 +1,670 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #0f1115;
+  color: #e6e6e6;
+  font-family: system-ui, sans-serif;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.url-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #171a21;
+  border-bottom: 1px solid #2a2e37;
+}
+
+.ws-indicator {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ws-indicator.connected {
+  color: #22c55e;
+}
+
+.ws-indicator.disconnected {
+  color: #ef4444;
+}
+
+.url-bar input {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #2a2e37;
+  background: #0f1115;
+  color: #e6e6e6;
+}
+
+.url-bar button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: none;
+  background: #3b82f6;
+  color: white;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.url-bar button:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.url-bar button.status-connecting {
+  background: #6b7280;
+}
+
+.url-bar button.status-connected {
+  background: #22c55e;
+}
+
+.view-original-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  background: #2a2e37;
+  color: #e6e6e6;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.view-original-btn.disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.home-btn {
+  background: #2a2e37 !important;
+}
+
+.log-path {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: #6b7280;
+  background: #171a21;
+  border-bottom: 1px solid #2a2e37;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* 구간 상세(영상 + 모델 분석 + 사람 분석) — 채팅에서 항목을 클릭하면 열리는 패널 */
+.segment-video {
+  width: 100%;
+  max-height: 45vh;
+  background: black;
+}
+
+.segment-audio {
+  width: 100%;
+}
+
+.segment-text-card {
+  background: #171a21;
+  border: 1px solid #2a2e37;
+  border-radius: 8px;
+  padding: 14px;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.model-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #3b82f6;
+  color: white;
+  font-size: 11px;
+  margin-right: 8px;
+}
+
+.segment-latency-stat {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.ground-truth-card {
+  background: #171a21;
+  border: 1px solid #2a2e37;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.ground-truth-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.ground-truth-state.saving {
+  color: #93c5fd;
+}
+
+.ground-truth-state.saved {
+  color: #22c55e;
+}
+
+.ground-truth-input {
+  width: 100%;
+  min-height: 70px;
+  resize: vertical;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid #2a2e37;
+  background: #0f1115;
+  color: #e6e6e6;
+  font-size: 14px;
+  line-height: 1.5;
+  font-family: inherit;
+}
+
+/* 메인 페이지 — 분석한 방송 기록 카드 목록 */
+.home-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px;
+}
+
+.home-page-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.home-page-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.home-page-count {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.home-empty {
+  color: #666;
+  font-size: 13px;
+  padding: 60px 0;
+  text-align: center;
+}
+
+.session-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.session-card {
+  background: #171a21;
+  border: 1px solid #2a2e37;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.session-card:hover {
+  transform: translateY(-2px);
+  border-color: #3b82f6;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.session-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-card-platform {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #1e293b;
+  color: #93c5fd;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.session-card-platform.chzzk {
+  background: #052e1a;
+  color: #4ade80;
+}
+
+.session-card-platform.soop {
+  background: #3a1a05;
+  color: #fb923c;
+}
+
+.session-card-status {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.session-card-status.active {
+  background: #1e293b;
+  color: #93c5fd;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.session-card-status.done {
+  background: #1c1f27;
+  color: #6b7280;
+}
+
+.session-card-streamer {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.session-card-title {
+  font-size: 13px;
+  color: #9ca3af;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-card-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.session-card-model-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #2a2e37;
+  color: #e6e6e6;
+  font-size: 10px;
+}
+
+.session-card-footer {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.session-card-time {
+  font-size: 11px;
+  color: #52596a;
+}
+
+.session-card-original-link {
+  font-size: 11px;
+  color: #93c5fd;
+  text-decoration: none;
+}
+
+.session-card-original-link:hover {
+  text-decoration: underline;
+}
+
+/* 통합 분석 화면 — 왼쪽 채팅 목록 + 오른쪽 클릭 시 열리는 상세 패널.
+   채팅 목록은 column-reverse + DOM 역순 렌더링 조합으로, 새 항목이 항상
+   하단에 고정되어 보이고(스크롤 강제 조작 없이) 위로 스크롤해 과거 항목을
+   봐도 새 항목 도착 시 방해받지 않는다. */
+.chat-page {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.chat-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.chat-pane-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  background: #171a21;
+  border-bottom: 1px solid #2a2e37;
+}
+
+.pending-card {
+  flex-shrink: 0;
+  align-self: center;
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #1e293b;
+  border: 1px solid #2a2e37;
+  color: #93c5fd;
+  font-size: 12px;
+}
+
+.api-usage-card {
+  flex-shrink: 0;
+  align-self: center;
+  margin-top: 8px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: #1a2a1e;
+  border: 1px solid #2a2e37;
+  color: #86efac;
+  font-size: 11px;
+}
+
+.pending-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3b82f6;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.chat-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column-reverse;
+  overflow-y: auto;
+  padding: 12px 16px;
+  gap: 14px;
+}
+
+.chat-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 640px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 6px;
+  border-radius: 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.chat-row:hover {
+  background: #171a21;
+}
+
+.chat-row.active {
+  background: #1e293b;
+  border-color: #3b82f6;
+}
+
+.chat-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.chat-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #3b82f6;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chat-status-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid #0f1115;
+}
+
+.chat-status-dot.green {
+  background: #22c55e;
+}
+
+.chat-status-dot.red {
+  background: #ef4444;
+}
+
+.chat-content {
+  min-width: 0;
+}
+
+.chat-meta {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.chat-bubble {
+  display: inline-block;
+  background: #1e2530;
+  border: 1px solid #2a2e37;
+  border-radius: 4px 16px 16px 16px;
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+/* 우측 상세 패널 */
+.detail-pane {
+  flex: 0 0 420px;
+  max-width: 45vw;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #2a2e37;
+  overflow-y: auto;
+}
+
+.detail-pane-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #9ca3af;
+  background: #171a21;
+  border-bottom: 1px solid #2a2e37;
+}
+
+.detail-pane-header span {
+  flex: 1;
+  text-align: center;
+}
+
+.detail-pane-header button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #2a2e37;
+  background: #0f1115;
+  color: #e6e6e6;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.detail-pane-header button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.detail-close-btn {
+  background: #2a2e37 !important;
+}
+
+.detail-pane-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+/* 분석 시작 모달 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal-card {
+  background: #171a21;
+  border: 1px solid #2a2e37;
+  border-radius: 12px;
+  padding: 24px;
+  width: 420px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-card h3 {
+  margin: 0 0 16px;
+  font-size: 16px;
+}
+
+.modal-section {
+  margin-bottom: 18px;
+}
+
+.modal-section-title {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.modal-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.modal-option.disabled-option {
+  color: #6b7280;
+  cursor: default;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.modal-cancel-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid #2a2e37;
+  background: transparent;
+  color: #e6e6e6;
+  cursor: pointer;
+}
+
+.modal-confirm-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: none;
+  background: #3b82f6;
+  color: white;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.modal-confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.api-key-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px 24px;
+}
+
+.api-key-input {
+  flex: 1;
+  min-width: 180px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid #2a2e37;
+  background: #0f1115;
+  color: #e6e6e6;
+  font-size: 12px;
+}
+
+.api-key-verify-btn {
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: none;
+  background: #2a2e37;
+  color: #e6e6e6;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.api-key-verify-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.api-key-status {
+  width: 100%;
+  font-size: 12px;
+}
+
+.api-key-status.valid {
+  color: #22c55e;
+}
+
+.api-key-status.invalid {
+  color: #ef4444;
+}

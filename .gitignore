@@ -1,0 +1,10 @@
+# IDE
+.idea/
+.vscode/
+
+# Claude Code local state (launch.json is kept, lock files aren't needed)
+.claude/scheduled_tasks.lock
+
+# OS
+.DS_Store
+Thumbs.db
