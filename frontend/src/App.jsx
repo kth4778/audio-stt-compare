@@ -81,14 +81,24 @@ function App() {
 
   const [pastSessions, setPastSessions] = useState([])
 
+  // 백엔드 서버 자체가 살아있는지(세션 WebSocket과 무관) — 홈 화면에 표시.
+  // Render 무료 플랜은 슬립 후 깨어나는 데 50초 이상 걸릴 수 있어 체크 중 상태를 따로 둔다.
+  const [serverStatus, setServerStatus] = useState('checking') // checking | online | offline
+
   // OpenAI API 분석일 때만 채워지는 실시간 사용량(요청 수/오디오 길이/추정 비용)
   const [apiUsage, setApiUsage] = useState(null)
 
   const loadPastSessions = () => {
     fetch(`${BACKEND_HTTP}/sessions`)
-      .then((res) => res.json())
-      .then((data) => setPastSessions(data.sessions ?? []))
-      .catch(() => {})
+      .then((res) => {
+        if (!res.ok) throw new Error('server error')
+        return res.json()
+      })
+      .then((data) => {
+        setPastSessions(data.sessions ?? [])
+        setServerStatus('online')
+      })
+      .catch(() => setServerStatus('offline'))
   }
 
   const loadGroundTruths = (name) => {
@@ -200,7 +210,12 @@ function App() {
     // 중지 버튼과 그동안의 결과를 복원한다 (localStorage에 세션명을 남겨뒀다가 확인).
     const savedName = localStorage.getItem('activeSessionName')
     if (savedName) openPastSession(savedName, { openFirst: false, resumeOnly: true })
-    return () => disconnectSessionWs()
+    // 백엔드 서버 상태를 주기적으로 재확인(다른 사람의 세션 상태도 같이 갱신됨).
+    const statusTimer = setInterval(loadPastSessions, 30000)
+    return () => {
+      disconnectSessionWs()
+      clearInterval(statusTimer)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -384,6 +399,11 @@ function App() {
           <div className="home-page-header">
             <div className="home-page-title">분석한 방송</div>
             <span className="home-page-count">{pastSessions.length}개</span>
+            <span className={`server-status ${serverStatus}`}>
+              {serverStatus === 'online' && '● 서버 정상'}
+              {serverStatus === 'checking' && '● 서버 상태 확인 중...'}
+              {serverStatus === 'offline' && '● 서버 응답 없음 — 잠시 후 다시 시도해보세요'}
+            </span>
           </div>
           {pastSessions.length === 0 ? (
             <div className="home-empty">아직 분석한 방송이 없습니다. 위에서 URL을 입력하고 분석을 시작하세요.</div>

@@ -205,6 +205,24 @@ body {
   color: #6b7280;
 }
 
+.server-status {
+  margin-left: auto;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.server-status.online {
+  color: #22c55e;
+}
+
+.server-status.offline {
+  color: #ef4444;
+}
+
+.server-status.checking {
+  color: #6b7280;
+}
+
 .home-empty {
   color: #666;
   font-size: 13px;
