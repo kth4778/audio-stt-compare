@@ -17,12 +17,12 @@
 ## 스크린샷
 
 <div align="center">
-  <img src="screenshots/home.png" alt="분석한 방송 목록 화면" width="720" />
-  <p><sub>홈 화면 — 지금까지 분석한 방송을 카드로 모아 보고, 클릭하면 그때 화면을 그대로 다시 볼 수 있습니다.</sub></p>
+  <img src="screenshots/home.png" alt="분석한 방송 목록 화면" width="720" /><br/>
+  <sub>홈 화면 — 지금까지 분석한 방송을 카드로 모아 보고, 클릭하면 그때 화면을 그대로 다시 볼 수 있습니다.</sub>
+  <br/><br/>
+  <img src="screenshots/chat-view.png" alt="구간별 리뷰 화면" width="720" /><br/>
+  <sub>구간별 리뷰 화면 — 왼쪽은 실시간으로 쌓이는 채팅형 결과 목록(초록/빨강 점은 사람 검수 여부), 오른쪽은 클릭한 구간의 영상 + 모델 분석 + 정답 텍스트 입력 패널.</sub>
 </div>
-
-> 구간별 리뷰 화면(채팅 목록 + 영상/모델분석/정답 패널) 스크린샷도 `screenshots/chat-view.png`로 추가하면 자동으로 아래에 표시되도록 링크만 걸어두었습니다:
-> `![구간 리뷰 화면](screenshots/chat-view.png)`
 
 ## 왜 만들었나
 
