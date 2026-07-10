@@ -12,3 +12,5 @@ services:
         sync: false
       - key: SUPABASE_KEY
         sync: false
+      - key: CAPTURE_VIDEO
+        value: "false"

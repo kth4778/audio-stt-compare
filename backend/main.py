@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import subprocess
 import sys
 import uuid
@@ -26,6 +27,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("stt-compare")
 
 SEGMENT_DIR = Path(__file__).parent / "segments"
+
+# Render 무료 플랜처럼 RAM이 빠듯한 클라우드 배포에서는 ffmpeg의 영상 재인코딩(libx264)이
+# 메모리를 초과시켜 컨테이너가 죽는 문제가 있어(실측 확인됨), 배포 환경에서는
+# CAPTURE_VIDEO=false로 두고 오디오만 캡처한다. 로컬 개발은 기본값 그대로 영상 유지.
+CAPTURE_VIDEO = os.environ.get("CAPTURE_VIDEO", "true").lower() != "false"
 
 app = FastAPI()
 app.add_middleware(
@@ -144,16 +150,23 @@ def fetch_stream_metadata(page_url: str) -> dict:
         return {"streamer": None, "title": None}
 
 
-def _upload_video_segment(session_name: str, session_dir: Path, seq: int) -> None:
-    """구간 하나(seq)의 완성된 영상 파일을 Supabase Storage에 올리고 URL을 기록한다.
+def _upload_segment_file(session_name: str, session_dir: Path, seq: int) -> None:
+    """구간 하나(seq)의 완성된 영상/오디오 파일을 Supabase Storage에 올리고 URL을 기록한다.
     ffmpeg -f segment는 다음 구간 파일 쓰기를 시작해야 이전 파일이 완전히
     닫히므로, 이 함수는 항상 "그 다음 구간이 시작된 뒤"에만 호출해야 한다."""
-    video_path = session_dir / f"video_{seq:05d}.mp4"
-    if not video_path.exists():
+    if CAPTURE_VIDEO:
+        path = session_dir / f"video_{seq:05d}.mp4"
+    else:
+        path = session_dir / f"audio_{seq:05d}.m4a"
+    if not path.exists():
         return
-    url = db.upload_segment_file(session_name, video_path.name, video_path)
-    if url:
+    url = db.upload_segment_file(session_name, path.name, path)
+    if not url:
+        return
+    if CAPTURE_VIDEO:
         db.save_segment_url(session_name, seq, video_url=url)
+    else:
+        db.save_segment_url(session_name, seq, audio_url=url)
 
 
 class StartRequest(BaseModel):
@@ -200,6 +213,10 @@ async def get_session_detail(session_name: str):
             for video_file in sorted(session_dir.glob("video_*.mp4")):
                 seq = int(video_file.stem.split("_")[1])
                 segments[seq] = {"seq": seq, "video": f"/segments/{session_name}/{video_file.name}"}
+            for audio_file in sorted(session_dir.glob("audio_*.m4a")):
+                seq = int(audio_file.stem.split("_")[1])
+                segments.setdefault(seq, {"seq": seq})
+                segments[seq]["audio"] = f"/segments/{session_name}/{audio_file.name}"
 
     for seq, urls in db.load_segment_urls(session_name).items():
         segments.setdefault(seq, {"seq": seq})
@@ -268,21 +285,19 @@ async def run_capture_loop(capture: StreamCapture, orchestrator: Orchestrator, s
         if prev_seq is not None:
             # 직전 구간 파일은 ffmpeg가 이번 구간을 쓰기 시작한 시점에 이미 닫혀 있으므로
             # 이제 안전하게 Supabase Storage에 올릴 수 있다.
-            loop.run_in_executor(None, _upload_video_segment, session_name, session_dir, prev_seq)
+            loop.run_in_executor(None, _upload_segment_file, session_name, session_dir, prev_seq)
         prev_seq = seq
 
         session = sessions.get(session_name)
         if session is not None:
             session["last_seq"] = seq
 
-        await manager.broadcast(
-            session_name,
-            {
-                "type": "segment",
-                "seq": seq,
-                "video": f"/segments/{session_name}/video_{seq:05d}.mp4",
-            },
-        )
+        segment_payload = {"type": "segment", "seq": seq}
+        if CAPTURE_VIDEO:
+            segment_payload["video"] = f"/segments/{session_name}/video_{seq:05d}.mp4"
+        else:
+            segment_payload["audio"] = f"/segments/{session_name}/audio_{seq:05d}.m4a"
+        await manager.broadcast(session_name, segment_payload)
 
         async def on_result(seq: int, model_name: str, text: str, latency: float, usage: dict | None = None):
             payload = {
@@ -322,7 +337,7 @@ async def start(req: StartRequest):
     session_dir = SEGMENT_DIR / session_name
 
     loop = asyncio.get_event_loop()
-    capture = StreamCapture(req.url, session_dir)
+    capture = StreamCapture(req.url, session_dir, capture_video=CAPTURE_VIDEO)
     await loop.run_in_executor(None, capture.start)
     metadata_future = loop.run_in_executor(None, fetch_stream_metadata, req.url)
     try:
@@ -370,7 +385,7 @@ async def stop(session_name: str):
         # 마지막 구간은 "다음 구간이 시작될 때 이전 구간을 올린다"는 규칙으로는
         # 놓치므로, 세션이 끝나는 시점에 한 번 더 확실히 올려준다.
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, _upload_video_segment, session_name, SEGMENT_DIR / session_name, last_seq)
+        await loop.run_in_executor(None, _upload_segment_file, session_name, SEGMENT_DIR / session_name, last_seq)
     return {"status": "stopped"}
 
 

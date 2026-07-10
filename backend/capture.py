@@ -11,12 +11,18 @@ class StreamCapture:
     """라이브 스트림을 청크(구간) 단위로 나눠 두 갈래로 내보낸다.
 
     1. STT용 원시 PCM (파이프, audio_chunks()로 소비)
-    2. 구간별 리뷰용 영상 파일 (video_%05d.mp4, 음성 트랙 포함)
+    2. 구간별 리뷰용 파일 — capture_video=True면 영상(video_%05d.mp4, 음성 트랙 포함),
+       False면 오디오만(audio_%05d.m4a)
 
     영상은 -c:v copy(스트림 복사)로 자르면 가장 가까운 키프레임에서만 끊을 수 있어
     분석용 PCM 청크(정확히 chunk_seconds초 단위)와 시간 범위가 어긋난다 (실측 확인됨).
     그래서 -force_key_frames로 청크 경계마다 강제로 키프레임을 만들어 재인코딩하여,
     영상 구간과 분석 오디오 구간이 정확히 같은 시간 범위를 갖도록 한다.
+
+    이 영상 재인코딩(libx264)이 메모리를 많이 먹어서, RAM이 제한적인 클라우드 배포
+    환경(Render 무료 플랜 등)에서는 OOM으로 컨테이너가 죽는 문제가 있었다(실측 확인됨).
+    capture_video=False로 두면 영상 디코딩/인코딩 자체를 하지 않고 오디오만 뽑아서
+    이 문제를 피한다 — 오디오는 키프레임 정렬 문제가 없어 force_key_frames 트릭도 필요 없다.
 
     치지직/SOOP의 HLS를 ffmpeg가 직접 열면 "Invalid data found when
     processing input"로 실패한다 (CDN의 fMP4 세그먼트 처리 방식과 ffmpeg의 HLS
@@ -24,11 +30,18 @@ class StreamCapture:
     streamlink로 원본을 받아 ffmpeg에는 이미 정상화된 바이트 스트림만 파이프로 넘긴다.
     """
 
-    def __init__(self, page_url: str, segment_dir: Path, chunk_seconds: int = 10):
+    def __init__(
+        self,
+        page_url: str,
+        segment_dir: Path,
+        chunk_seconds: int = 10,
+        capture_video: bool = True,
+    ):
         self.page_url = page_url
         self.segment_dir = segment_dir
         self.chunk_seconds = chunk_seconds
         self.chunk_bytes = chunk_seconds * SAMPLE_RATE * BYTES_PER_SAMPLE
+        self.capture_video = capture_video
         self._streamlink_process: subprocess.Popen | None = None
         self._process: subprocess.Popen | None = None
 
@@ -40,18 +53,31 @@ class StreamCapture:
             streamlink_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
         )
 
+        if self.capture_video:
+            segment_cmd = [
+                "-map", "0:v", "-map", "0:a",
+                "-c:v", "libx264", "-preset", "veryfast",
+                "-force_key_frames", f"expr:gte(t,n_forced*{self.chunk_seconds})",
+                "-c:a", "aac",
+                "-f", "segment", "-segment_time", str(self.chunk_seconds),
+                "-reset_timestamps", "1",
+                "-segment_format", "mp4",
+                "-segment_format_options", "movflags=frag_keyframe+empty_moov+default_base_moof",
+                str(self.segment_dir / "video_%05d.mp4"),
+            ]
+        else:
+            segment_cmd = [
+                "-map", "0:a",
+                "-c:a", "aac",
+                "-f", "segment", "-segment_time", str(self.chunk_seconds),
+                "-reset_timestamps", "1",
+                str(self.segment_dir / "audio_%05d.m4a"),
+            ]
+
         ffmpeg_cmd = [
             "ffmpeg",
             "-i", "pipe:0",
-            "-map", "0:v", "-map", "0:a",
-            "-c:v", "libx264", "-preset", "veryfast",
-            "-force_key_frames", f"expr:gte(t,n_forced*{self.chunk_seconds})",
-            "-c:a", "aac",
-            "-f", "segment", "-segment_time", str(self.chunk_seconds),
-            "-reset_timestamps", "1",
-            "-segment_format", "mp4",
-            "-segment_format_options", "movflags=frag_keyframe+empty_moov+default_base_moof",
-            str(self.segment_dir / "video_%05d.mp4"),
+            *segment_cmd,
             "-map", "0:a",
             "-ar", str(SAMPLE_RATE), "-ac", "1",
             "-f", "s16le", "pipe:1",
