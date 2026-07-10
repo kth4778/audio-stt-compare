@@ -6,3 +6,4 @@ uvicorn[standard]
 python-dotenv
 openai
 streamlink
+supabase

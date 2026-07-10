@@ -9,6 +9,10 @@ const BACKEND_WS = import.meta.env.DEV
   ? 'ws://localhost:8000/ws'
   : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
 
+// 진행 중 세션의 구간은 백엔드 로컬 경로(상대경로)로, 지난 세션은 Supabase
+// Storage 절대 URL로 온다 — 이미 절대 URL이면 그대로, 아니면 BACKEND_HTTP를 붙인다.
+const resolveMediaUrl = (path) => (path.startsWith('http') ? path : `${BACKEND_HTTP}${path}`)
+
 const MODELS = [
   { key: 'large-v3', label: 'faster-whisper (large-v3)' },
   { key: 'large-v3-turbo', label: 'faster-whisper (large-v3-turbo)' },
@@ -489,7 +493,7 @@ function App() {
                 {selected.video && (
                   <video
                     key={selected.video}
-                    src={`${BACKEND_HTTP}${selected.video}`}
+                    src={resolveMediaUrl(selected.video)}
                     controls
                     autoPlay
                     loop
@@ -499,7 +503,7 @@ function App() {
                 {!selected.video && selected.audio && (
                   <audio
                     key={selected.audio}
-                    src={`${BACKEND_HTTP}${selected.audio}`}
+                    src={resolveMediaUrl(selected.audio)}
                     controls
                     autoPlay
                     loop

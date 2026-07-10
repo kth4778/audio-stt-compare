@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from openai import AuthenticationError, OpenAI
 
+import db
 from adapters.openai_whisper_adapter import OpenAIWhisperAdapter
 from capture import SAMPLE_RATE, StreamCapture
 from orchestrator import Orchestrator
@@ -24,7 +25,6 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("stt-compare")
 
-LOG_DIR = Path(__file__).parent / "logs"
 SEGMENT_DIR = Path(__file__).parent / "segments"
 
 app = FastAPI()
@@ -64,7 +64,7 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# 세션명 -> {"capture", "orchestrator", "log_file", "task"} — 동시에 여러 명이
+# 세션명 -> {"capture", "orchestrator", "last_seq", "task"} — 동시에 여러 명이
 # 각자 다른(또는 같은) 방송을 분석할 수 있도록 세션마다 독립적으로 상태를 갖는다.
 # 인원 제한은 두지 않는다 (CPU 부담이 큰 로컬 모델을 여럿이 동시에 고르면
 # 당연히 서로 느려지지만, 이건 사용자들이 알아서 모델을 고르며 관리할 몫이다).
@@ -144,22 +144,16 @@ def fetch_stream_metadata(page_url: str) -> dict:
         return {"streamer": None, "title": None}
 
 
-SESSIONS_PATH = LOG_DIR / "sessions.json"
-
-
-def load_sessions() -> list:
-    if SESSIONS_PATH.exists():
-        with open(SESSIONS_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
-
-
-def append_session(record: dict) -> None:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    sessions_list = load_sessions()
-    sessions_list.append(record)
-    with open(SESSIONS_PATH, "w", encoding="utf-8") as f:
-        json.dump(sessions_list, f, ensure_ascii=False, indent=2)
+def _upload_video_segment(session_name: str, session_dir: Path, seq: int) -> None:
+    """구간 하나(seq)의 완성된 영상 파일을 Supabase Storage에 올리고 URL을 기록한다.
+    ffmpeg -f segment는 다음 구간 파일 쓰기를 시작해야 이전 파일이 완전히
+    닫히므로, 이 함수는 항상 "그 다음 구간이 시작된 뒤"에만 호출해야 한다."""
+    video_path = session_dir / f"video_{seq:05d}.mp4"
+    if not video_path.exists():
+        return
+    url = db.upload_segment_file(session_name, video_path.name, video_path)
+    if url:
+        db.save_segment_url(session_name, seq, video_url=url)
 
 
 class StartRequest(BaseModel):
@@ -180,7 +174,7 @@ class GroundTruthRequest(BaseModel):
 
 @app.get("/sessions")
 async def get_sessions():
-    records = load_sessions()
+    records = db.load_sessions()
     for s in records:
         s["status"] = "분석중" if s["session_name"] in sessions else "분석완료"
     return {"sessions": records}
@@ -191,75 +185,62 @@ async def get_session_detail(session_name: str):
     """세션 하나를 다시 볼 수 있도록 영상 구간 + 모델 결과 + 사람 정답을
     합쳐서 돌려준다 (라이브 중 프론트가 쓰는 것과 동일한 segments 구조).
     아직 진행 중인 세션이어도(그 세션을 시작한 사람이 새로고침한 경우 등)
-    지금까지의 진행 상황을 그대로 복원할 수 있다."""
-    session_dir = SEGMENT_DIR / session_name
-    if not session_dir.exists():
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
+    지금까지의 진행 상황을 그대로 복원할 수 있다.
 
+    영상/오디오는 Supabase Storage 업로드가 끝난 구간은 그 URL을, 방금 만들어져
+    아직 업로드 전인(진행 중 세션의) 최신 구간은 로컬 디스크 경로를 사용한다 —
+    Render 재시작 시 로컬 디스크는 초기화되지만 그때는 세션도 이미 끝나 있으므로
+    문제되지 않는다."""
+    is_active = session_name in sessions
     segments: dict[int, dict] = {}
-    for video_file in sorted(session_dir.glob("video_*.mp4")):
-        seq = int(video_file.stem.split("_")[1])
-        segments[seq] = {"seq": seq, "video": f"/segments/{session_name}/{video_file.name}"}
-    for audio_file in sorted(session_dir.glob("audio_*.m4a")):
-        seq = int(audio_file.stem.split("_")[1])
+
+    if is_active:
+        session_dir = SEGMENT_DIR / session_name
+        if session_dir.exists():
+            for video_file in sorted(session_dir.glob("video_*.mp4")):
+                seq = int(video_file.stem.split("_")[1])
+                segments[seq] = {"seq": seq, "video": f"/segments/{session_name}/{video_file.name}"}
+
+    for seq, urls in db.load_segment_urls(session_name).items():
         segments.setdefault(seq, {"seq": seq})
-        segments[seq]["audio"] = f"/segments/{session_name}/{audio_file.name}"
+        if "video" not in segments[seq] and urls.get("video_url"):
+            segments[seq]["video"] = urls["video_url"]
+        if "audio" not in segments[seq] and urls.get("audio_url"):
+            segments[seq]["audio"] = urls["audio_url"]
 
     last_usage = None
-    log_path = LOG_DIR / f"{session_name}.jsonl"
-    if log_path.exists():
-        with open(log_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                entry = json.loads(line)
-                seq = entry["seq"]
-                segments.setdefault(seq, {"seq": seq})
-                segments[seq]["text"] = entry["text"]
-                segments[seq]["latency"] = entry["latency"]
-                if entry.get("usage"):
-                    last_usage = entry["usage"]
+    for entry in db.load_transcripts(session_name):
+        seq = entry["seq"]
+        segments.setdefault(seq, {"seq": seq})
+        segments[seq]["text"] = entry["text"]
+        segments[seq]["latency"] = entry["latency"]
+        if entry.get("usage"):
+            last_usage = entry["usage"]
 
-    ground_truth = {}
-    gt_path = LOG_DIR / f"{session_name}.ground_truth.json"
-    if gt_path.exists():
-        with open(gt_path, "r", encoding="utf-8") as f:
-            ground_truth = json.load(f)
+    ground_truth = db.load_ground_truth(session_name)
+    meta = next((s for s in db.load_sessions() if s["session_name"] == session_name), None)
 
-    meta = next((s for s in load_sessions() if s["session_name"] == session_name), None)
+    if meta is None and not segments:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
 
     return {
         "meta": meta,
         "segments": sorted(segments.values(), key=lambda s: s["seq"]),
         "ground_truth": ground_truth,
         "usage": last_usage,
-        "is_active": session_name in sessions,
+        "is_active": is_active,
     }
 
 
 @app.get("/ground-truth/{session_name}")
 async def get_ground_truth(session_name: str):
-    path = LOG_DIR / f"{session_name}.ground_truth.json"
-    if not path.exists():
-        return {"ground_truth": {}}
-    with open(path, "r", encoding="utf-8") as f:
-        return {"ground_truth": json.load(f)}
+    return {"ground_truth": db.load_ground_truth(session_name)}
 
 
 @app.post("/ground-truth")
 async def save_ground_truth(req: GroundTruthRequest):
-    """사람이 직접 들은 정답 텍스트를 구간(seq)별로 저장한다.
-    타이핑할 때마다 프론트에서 디바운스 호출하므로 매번 파일 전체를 덮어쓴다."""
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    path = LOG_DIR / f"{req.session_name}.ground_truth.json"
-    data = {}
-    if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    data[str(req.seq)] = req.text
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    """사람이 직접 들은 정답 텍스트를 구간(seq)별로 저장한다."""
+    db.save_ground_truth(req.session_name, req.seq, req.text)
     return {"status": "saved"}
 
 
@@ -279,7 +260,21 @@ async def verify_openai_key(req: VerifyKeyRequest):
 
 
 async def run_capture_loop(capture: StreamCapture, orchestrator: Orchestrator, session_name: str):
+    loop = asyncio.get_event_loop()
+    session_dir = SEGMENT_DIR / session_name
+    prev_seq: int | None = None
+
     async for seq, audio_chunk in capture.audio_chunks():
+        if prev_seq is not None:
+            # 직전 구간 파일은 ffmpeg가 이번 구간을 쓰기 시작한 시점에 이미 닫혀 있으므로
+            # 이제 안전하게 Supabase Storage에 올릴 수 있다.
+            loop.run_in_executor(None, _upload_video_segment, session_name, session_dir, prev_seq)
+        prev_seq = seq
+
+        session = sessions.get(session_name)
+        if session is not None:
+            session["last_seq"] = seq
+
         await manager.broadcast(
             session_name,
             {
@@ -300,20 +295,14 @@ async def run_capture_loop(capture: StreamCapture, orchestrator: Orchestrator, s
             if usage:
                 payload["usage"] = usage
             await manager.broadcast(session_name, payload)
-            session = sessions.get(session_name)
-            log_file = session["log_file"] if session else None
-            if log_file is not None:
-                log_entry = {
-                    "timestamp": datetime.now().isoformat(timespec="seconds"),
-                    "seq": seq,
-                    "model": model_name,
-                    "text": text,
-                    "latency": round(latency, 2),
-                }
-                if usage:
-                    log_entry["usage"] = usage
-                log_file.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
-                log_file.flush()
+
+            def persist():
+                try:
+                    db.save_transcript(session_name, seq, model_name, text, round(latency, 2), usage)
+                except Exception:
+                    logger.exception("transcript 저장 실패 (session=%s, seq=%s)", session_name, seq)
+
+            loop.run_in_executor(None, persist)
 
         asyncio.create_task(orchestrator.process_chunk(seq, audio_chunk, on_result))
 
@@ -345,11 +334,7 @@ async def start(req: StartRequest):
     orchestrator = Orchestrator(adapters, SAMPLE_RATE)
     metadata = await metadata_future
 
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_path = LOG_DIR / f"{session_name}.jsonl"
-    log_file = open(log_path, "a", encoding="utf-8")
-
-    append_session(
+    db.append_session(
         {
             "session_name": session_name,
             "url": req.url,
@@ -364,11 +349,11 @@ async def start(req: StartRequest):
     sessions[session_name] = {
         "capture": capture,
         "orchestrator": orchestrator,
-        "log_file": log_file,
+        "last_seq": None,
         "task": asyncio.create_task(run_capture_loop(capture, orchestrator, session_name)),
     }
 
-    return {"status": "started", "log_file": str(log_path), "session_name": session_name}
+    return {"status": "started", "session_name": session_name}
 
 
 @app.post("/stop/{session_name}")
@@ -379,7 +364,13 @@ async def stop(session_name: str):
     session["capture"].stop()
     session["task"].cancel()
     session["orchestrator"].shutdown()
-    session["log_file"].close()
+
+    last_seq = session.get("last_seq")
+    if last_seq is not None:
+        # 마지막 구간은 "다음 구간이 시작될 때 이전 구간을 올린다"는 규칙으로는
+        # 놓치므로, 세션이 끝나는 시점에 한 번 더 확실히 올려준다.
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _upload_video_segment, session_name, SEGMENT_DIR / session_name, last_seq)
     return {"status": "stopped"}
 
 
