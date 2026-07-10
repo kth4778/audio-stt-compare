@@ -15,10 +15,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from openai import AuthenticationError, OpenAI
 
-from adapters.moonshine_adapter import MoonshineAdapter
 from adapters.openai_whisper_adapter import OpenAIWhisperAdapter
-from adapters.sensevoice_adapter import SenseVoiceAdapter
-from adapters.whisper_adapter import FasterWhisperAdapter
 from capture import SAMPLE_RATE, StreamCapture
 from orchestrator import Orchestrator
 
@@ -74,12 +71,33 @@ manager = ConnectionManager()
 sessions: dict[str, dict] = {}
 
 
+def _faster_whisper(size: str):
+    # torch/faster-whisper는 무거워서(수 GB) 클라우드 배포 이미지에는 안 넣으므로,
+    # 실제로 이 모델을 고를 때만 임포트한다 — 로컬 개발 환경에는 그대로 설치돼 있어
+    # 정상 동작하고, 가벼운 클라우드 배포본에서 고르면 명확한 에러로 안내된다.
+    from adapters.whisper_adapter import FasterWhisperAdapter
+
+    return FasterWhisperAdapter(size)
+
+
+def _sensevoice():
+    from adapters.sensevoice_adapter import SenseVoiceAdapter
+
+    return SenseVoiceAdapter()
+
+
+def _moonshine():
+    from adapters.moonshine_adapter import MoonshineAdapter
+
+    return MoonshineAdapter()
+
+
 MODEL_REGISTRY = {
-    "large-v3": lambda: FasterWhisperAdapter("large-v3"),
-    "large-v3-turbo": lambda: FasterWhisperAdapter("large-v3-turbo"),
-    "medium": lambda: FasterWhisperAdapter("medium"),
-    "sensevoice": lambda: SenseVoiceAdapter(),
-    "moonshine": lambda: MoonshineAdapter(),
+    "large-v3": lambda: _faster_whisper("large-v3"),
+    "large-v3-turbo": lambda: _faster_whisper("large-v3-turbo"),
+    "medium": lambda: _faster_whisper("medium"),
+    "sensevoice": _sensevoice,
+    "moonshine": _moonshine,
 }
 
 OPENAI_API_MODEL_KEYS = {
@@ -377,3 +395,9 @@ async def websocket_endpoint(ws: WebSocket, session_name: str):
 
 SEGMENT_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/segments", StaticFiles(directory=str(SEGMENT_DIR)), name="segments")
+
+# 배포 환경에서는 프론트 빌드 결과(frontend/dist)를 백엔드가 그대로 서빙한다
+# (프론트 로컬 개발 서버는 이 디렉터리가 없으므로 영향 없음).
+FRONTEND_DIST = Path(__file__).parent.parent / "frontend" / "dist"
+if FRONTEND_DIST.exists():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIST), html=True), name="frontend")

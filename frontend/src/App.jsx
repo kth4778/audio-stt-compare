@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
 
-const BACKEND_HTTP = 'http://localhost:8000'
-const BACKEND_WS = 'ws://localhost:8000/ws'
+// 로컬 개발(Vite 5173 + 백엔드 8000, 서로 다른 오리진)에서는 localhost:8000을 직접
+// 가리키고, 배포 환경(백엔드가 프론트 빌드 결과도 같이 서빙하는 같은 오리진)에서는
+// 상대 경로/현재 호스트를 쓴다.
+const BACKEND_HTTP = import.meta.env.DEV ? 'http://localhost:8000' : ''
+const BACKEND_WS = import.meta.env.DEV
+  ? 'ws://localhost:8000/ws'
+  : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`
 
 const MODELS = [
   { key: 'large-v3', label: 'faster-whisper (large-v3)' },

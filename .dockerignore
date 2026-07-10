@@ -1,0 +1,9 @@
+.git
+.idea
+.claude
+backend/venv
+backend/segments
+backend/logs
+backend/.env
+frontend/node_modules
+frontend/dist

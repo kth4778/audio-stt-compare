@@ -1,0 +1,8 @@
+# 클라우드 배포용 경량 의존성 — API 모델(OpenAI)만 지원한다.
+# 로컬 모델(faster-whisper/SenseVoice/Moonshine)은 torch 등 수 GB짜리
+# 의존성이 필요해서 배포 이미지에는 넣지 않는다(로컬 개발 venv에는 별도 설치됨).
+fastapi
+uvicorn[standard]
+python-dotenv
+openai
+streamlink
